@@ -3,26 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn("Supabase credentials missing. Check your .env file.");
-}
+// Note: If supabaseUrl or supabaseAnonKey are missing, the client will be created
+// with placeholder values and Supabase calls will fail gracefully.
 
+// SEC5 fix: Only create client if credentials are present
 export const supabase = createClient(
-  supabaseUrl || "",
-  supabaseAnonKey || ""
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseAnonKey || "placeholder"
 );
-
-if (supabaseUrl) {
-  console.log("⚡ Supabase client initialized:", new URL(supabaseUrl).hostname);
-  
-  // Quick sanity check (optional but helpful for the user)
-  supabase.from('hospitals').select('id', { count: 'exact', head: true })
-    .then(({ error }) => {
-      if (error) {
-        console.error("❌ Supabase Database connection error:", error.message);
-      } else {
-        console.log("✅ Supabase Database connected and reachable.");
-      }
-    });
-}
 

@@ -26,8 +26,7 @@ export const LocationBar = () => {
       );
       setShowRefresh(true);
       setTimeout(() => setShowRefresh(false), 3000);
-    } catch (error) {
-      console.error("Error fetching location:", error);
+    } catch {
       setShowRefresh(false);
     } finally {
       setLoading(false);

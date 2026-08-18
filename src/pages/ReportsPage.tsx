@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthContext } from "@/hooks/useAuthContext";
 import { reportStore } from "@/lib/store";
-import { mockHospitals, MedicalReport, Hospital } from "@/lib/mockData";
-import { FileText, Lock, Unlock, CreditCard, ChevronRight, Activity, Hospital as HospitalIcon } from "lucide-react";
+import { MedicalReport } from "@/lib/mockData";
+import { getHospitalName } from "@/lib/hospitalUtils";
+import { FileText, CreditCard, ChevronRight, Activity, Hospital as HospitalIcon } from "lucide-react";
 import { toast } from "sonner";
+import { openRazorpayCheckout, isRazorpayConfigured } from "@/lib/razorpay";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -41,40 +43,50 @@ const ReportsPage = () => {
     setIsPaymentOpen(true);
   };
 
-  const handleProcessPayment = () => {
+  const handleProcessPayment = async () => {
+    const report = selectedReport;
+    if (!report || !user) return;
+
     setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setIsPaymentOpen(false);
-      
-      if (user && selectedReport) {
-        const updatedUnlocked = [...unlockedReports, selectedReport.id];
+
+    try {
+      // If Razorpay is configured, open real checkout
+      if (isRazorpayConfigured()) {
+        const response = await openRazorpayCheckout({
+          amount: 10, // ₹10
+          description: `Unlock report: ${report.testName}`,
+          customerName: user.displayName || undefined,
+          customerPhone: user.phoneNumber || undefined,
+        });
+
+        if (response) {
+          // Real payment succeeded
+          const updatedUnlocked = [...unlockedReports, report.id];
+          setUnlockedReports(updatedUnlocked);
+          localStorage.setItem(`unlocked_reports_${user.uid}`, JSON.stringify(updatedUnlocked));
+          toast.success("Payment successful! Report unlocked.");
+          setViewingResult(report);
+          setIsPaymentOpen(false);
+        }
+      } else {
+        // Demo mode — simulate payment after 1.5s
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const updatedUnlocked = [...unlockedReports, report.id];
         setUnlockedReports(updatedUnlocked);
         localStorage.setItem(`unlocked_reports_${user.uid}`, JSON.stringify(updatedUnlocked));
-        toast.success("Payment successful! Report unlocked.");
-        setViewingResult(selectedReport);
+        toast.success("Report unlocked (Demo Mode - no payment was charged).");
+        setViewingResult(report);
+        setIsPaymentOpen(false);
       }
-    }, 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Payment failed";
+      toast.error(message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const getHospitalName = (id: string): string => {
-    const mockMatch = mockHospitals.find(h => h.id === id);
-    if (mockMatch) return mockMatch.name;
-    
-    // Check cached hospitals
-    try {
-      const cachedList = localStorage.getItem("cached_hospitals_list");
-      if (cachedList) {
-        const parsed: Hospital[] = JSON.parse(cachedList);
-        const found = parsed.find((h) => h.id === id);
-        if (found) return found.name;
-      }
-    } catch {
-      // Ignore
-    }
-    
-    return "Unknown Hospital";
-  };
+
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -194,7 +206,7 @@ const ReportsPage = () => {
                           onClick={() => handleUnlockClick(report)}
                           className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 text-black font-semibold text-sm hover:bg-amber-400 transition-all shadow-md shadow-amber-500/20"
                         >
-                          <CreditCard className="w-4 h-4" /> Pay ₹10
+                          <CreditCard className="w-4 h-4" /> Unlock (Demo)
                         </button>
                       )}
                     </div>
@@ -219,11 +231,18 @@ const ReportsPage = () => {
           </DialogHeader>
           
           <div className="p-6 bg-secondary/30 rounded-2xl my-4 flex flex-col items-center justify-center space-y-4 border border-white/5">
+            {!isRazorpayConfigured() && (
+              <div className="px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full">
+                <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest">Demo Mode</p>
+              </div>
+            )}
             <div className="text-5xl font-black bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
               ₹10.00
             </div>
             <p className="text-xs text-gray-500 text-center">
-              Secure payment gateway. Click pay to complete transaction.
+              {isRazorpayConfigured()
+                ? "Secure payment via Razorpay. UPI, cards, and net banking accepted."
+                : "Demo mode. Set VITE_RAZORPAY_KEY_ID to enable real payments."}
             </p>
           </div>
 
@@ -243,10 +262,10 @@ const ReportsPage = () => {
               {isProcessing ? (
                 <>
                   <div className="w-4 h-4 border-2 border-background/30 border-t-background rounded-full animate-spin" />
-                  Processing...
+                  Unlocking...
                 </>
               ) : (
-                <>Pay ₹10 Securely</>
+                <>Unlock Report</>
               )}
             </button>
           </DialogFooter>

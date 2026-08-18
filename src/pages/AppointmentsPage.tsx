@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthContext } from "@/hooks/useAuthContext";
 import { appointmentStore, reportStore } from "@/lib/store";
-import { mockDoctors, mockHospitals, Appointment, Doctor, Hospital, MedicalReport } from "@/lib/mockData";
+import { mockDoctors, Appointment, Doctor, MedicalReport } from "@/lib/mockData";
+import { getHospitalById } from "@/lib/hospitalUtils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { CalendarCheck, MapPin, ShieldCheck, FileText, ArrowRight, Loader2, Calendar } from "lucide-react";
@@ -41,30 +42,7 @@ const AppointmentsPage = () => {
     return undefined;
   };
 
-  const getHospital = (id: string): Hospital | undefined => {
-    const mockHosp = mockHospitals.find((h) => h.id === id);
-    if (mockHosp) return mockHosp;
 
-    try {
-      const cachedMap = JSON.parse(localStorage.getItem("cached_hospitals_map") || "{}");
-      if (cachedMap[id]) return cachedMap[id] as Hospital;
-    } catch {
-      // Ignore parse errors
-    }
-
-    try {
-      const cachedList = localStorage.getItem("cached_hospitals_list");
-      if (cachedList) {
-        const parsed: Hospital[] = JSON.parse(cachedList);
-        const found = parsed.find((h) => h.id === id);
-        if (found) return found;
-      }
-    } catch {
-      // Ignore parse errors
-    }
-
-    return undefined;
-  };
 
   const handleCompleteCheckup = async (appt: Appointment) => {
     const doctor = getDoctor(appt.doctorId);
@@ -164,7 +142,7 @@ const AppointmentsPage = () => {
           <AnimatePresence>
             {appointments.map((appt) => {
               const doctor = getDoctor(appt.doctorId);
-              const hospital = getHospital(appt.hospitalId);
+              const hospital = getHospitalById(appt.hospitalId);
               const config = statusConfig[appt.status] || statusConfig.booked;
               const StatusIcon = config.Icon;
               

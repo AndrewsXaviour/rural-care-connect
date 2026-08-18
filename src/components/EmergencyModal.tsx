@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { Patient, mockHospitals, Hospital } from "@/lib/mockData";
 import { calculateDistance } from "@/lib/location";
 import { toast } from "sonner";
-import { AlertCircle, MapPin, User, ShieldAlert, PhoneCall, CheckCircle2 } from "lucide-react";
+import { handleError } from "@/lib/errors";
+import { FocusTrap } from "@/components/ui/focus-trap";
+import { AlertCircle, MapPin, User, ShieldAlert, PhoneCall, CheckCircle2, Users } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface EmergencyModalProps {
@@ -11,8 +13,7 @@ interface EmergencyModalProps {
 }
 
 export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
-  const [step, setStep] = useState<"confirm" | "broadcasting" | "sent">("confirm");
-  const [countdown, setCountdown] = useState(5);
+  const [step, setStep] = useState<"confirm" | "sent">("confirm");
   const [nearestHospital, setNearestHospital] = useState<Hospital | null>(null);
 
   // Find nearest hospital on mount
@@ -32,8 +33,8 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
             closest = { ...h, distance: d };
           }
         });
-      } catch (e) {
-        console.error("Location parse error", e);
+      } catch {
+        // Location parse failed, will use fallback
       }
     }
 
@@ -49,28 +50,85 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
     findNearestHospital();
   }, [findNearestHospital]);
 
-  // Countdown for broadcasting
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (step === "broadcasting" && countdown > 0) {
-      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    } else if (step === "broadcasting" && countdown === 0) {
-      setStep("sent");
-      toast.success("SOS Broadcast Successful!");
-    }
-    return () => clearTimeout(timer);
-  }, [step, countdown]);
+  const [sendingSMS, setSendingSMS] = useState(false);
+  const [smsStatus, setSmsStatus] = useState<string | null>(null);
 
-  const handleSOS = () => {
+  const handleSOS = async () => {
     if (!patient) {
       toast.error("Please complete your profile before using Emergency SOS");
       return;
     }
-    setStep("broadcasting");
+
+    const contacts = patient.emergencyContacts || [];
+    const hasContacts = contacts.length > 0 && contacts.some(c => c.phone);
+
+    // 1. Open tel: link to India emergency number (108)
+    window.location.href = "tel:108";
+
+    // 2. Get GPS location for SMS and Web Share
+    let locationData: { latitude: number; longitude: number } | undefined;
+    if (navigator.geolocation) {
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+        });
+        locationData = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+      } catch {
+        // Geolocation failed — continue without location
+      }
+    }
+
+    // 3. Share via Web Share API (if available)
+    if (navigator.share) {
+      const mapsUrl = locationData
+        ? `https://maps.google.com/?q=${locationData.latitude},${locationData.longitude}`
+        : "";
+      navigator.share({
+        title: "Emergency - RuralCare Connect",
+        text: `Medical emergency! Name: ${patient.fullName || "Patient"}. Blood: ${patient.bloodGroup || "Unknown"}. Age: ${patient.age || "Unknown"}. Please send help.`,
+        url: mapsUrl,
+      }).catch(() => {});
+    }
+
+    // 4. Send SMS to emergency contacts via serverless API
+    if (hasContacts) {
+      setSendingSMS(true);
+      try {
+        const response = await fetch("/api/send-sms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contacts: contacts.filter(c => c.phone).map(c => ({ name: c.name, phone: "+91" + c.phone })),
+            patient: { name: patient.fullName || "Patient", bloodGroup: patient.bloodGroup || "Unknown", age: patient.age || 0 },
+            location: locationData,
+          }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          setSmsStatus(result.demo
+            ? `Demo: SMS to ${contacts.length} contact(s) logged`
+            : `SMS sent to ${result.sent}/${result.total} contact(s)`);
+        } else {
+          setSmsStatus("SMS failed - call 108 directly");
+        }
+      } catch {
+        setSmsStatus("SMS failed - call 108 directly");
+      } finally {
+        setSendingSMS(false);
+      }
+    }
+
+    // 5. Mark as sent
+    setStep("sent");
+    toast.success(hasContacts ? "Emergency alerts sent!" : "Emergency call initiated!");
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Emergency SOS">
+      <FocusTrap onClose={onClose}>
       <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -96,13 +154,11 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
           </div>
           <h2 className="text-2xl font-black uppercase tracking-tight text-white">
              {step === "confirm" && "Emergency SOS"}
-             {step === "broadcasting" && "Sending SOS..."}
-             {step === "sent" && "SOS Broadcasted!"}
+             {step === "sent" && "SOS Activated!"}
           </h2>
           <p className={`text-sm mt-1 ${step === "sent" ? "text-green-400/80" : "text-red-400/80"}`}>
              {step === "confirm" && "Immediate Medical Assistance Request"}
-             {step === "broadcasting" && `Broadcasting in ${countdown}s`}
-             {step === "sent" && "Hospitals are alerted"}
+             {step === "sent" && "Emergency call initiated & location shared"}
           </p>
         </div>
 
@@ -141,32 +197,38 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
                     </p>
                   </div>
                 </div>
+
+                {patient?.emergencyContacts && patient.emergencyContacts.length > 0 && (
+                  <>
+                    <div className="h-px bg-white/5"></div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                        <Users className="w-5 h-5 text-red-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Emergency Contacts</p>
+                        <p className="text-sm font-medium text-gray-300 line-clamp-1">
+                          {patient.emergencyContacts.filter(c => c.phone).length} contact(s) will receive SMS
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex flex-col gap-3">
-                {step === "confirm" ? (
-                  <>
-                    <button 
-                      onClick={handleSOS}
-                      className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-3 active:scale-[0.98] uppercase tracking-wider text-sm"
-                    >
-                      <AlertCircle className="w-5 h-5" /> Broadcast SOS to All
-                    </button>
-                    <button 
-                      onClick={onClose}
-                      className="w-full py-3 bg-secondary hover:bg-secondary/80 text-gray-400 font-semibold rounded-xl transition-all border border-white/5 text-sm"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button 
-                    onClick={() => setCountdown(0)}
-                    className="w-full py-4 bg-white text-black font-black rounded-2xl shadow-xl animate-pulse uppercase tracking-wider text-sm"
-                  >
-                    Send Now
-                  </button>
-                )}
+                <button 
+                  onClick={handleSOS}
+                  className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-3 active:scale-[0.98] uppercase tracking-wider text-sm"
+                >
+                  <AlertCircle className="w-5 h-5" /> Call 108 & Share Location
+                </button>
+                <button 
+                  onClick={onClose}
+                  className="w-full py-3 bg-secondary hover:bg-secondary/80 text-gray-400 font-semibold rounded-xl transition-all border border-white/5 text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </>
           ) : (
@@ -186,9 +248,12 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
                </div>
 
                <div className="flex flex-col gap-3">
-                 <button className="w-full py-4 bg-primary text-background font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 text-sm">
-                   <PhoneCall className="w-5 h-5" /> Call Hospital Desk
-                 </button>
+                 <a 
+                   href="tel:108"
+                   className="w-full py-4 bg-primary text-background font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 text-sm"
+                 >
+                   <PhoneCall className="w-5 h-5" /> Call Emergency (108)
+                 </a>
                  <button 
                    onClick={onClose}
                    className="w-full py-3 text-gray-500 font-medium hover:text-gray-400 transition-colors text-sm"
@@ -203,11 +268,18 @@ export const EmergencyModal = ({ patient, onClose }: EmergencyModalProps) => {
 
         {/* Footer Notice */}
         <div className="bg-secondary/30 px-6 py-4 text-center border-t border-white/5">
+           {smsStatus && (
+             <p className="text-[10px] text-primary font-medium mb-1">{smsStatus}</p>
+           )}
+           {sendingSMS && (
+             <p className="text-[10px] text-amber-400 font-medium mb-1">Sending SMS to emergency contacts...</p>
+           )}
            <p className="text-[10px] text-gray-600 font-medium italic">
-             RuralCare Connect Emergency Protocol V2.1 • Encrypted Data Transmission Active
+             Calls 108 (India Medical Emergency) and alerts your emergency contacts via SMS.
            </p>
         </div>
       </motion.div>
+      </FocusTrap>
     </div>
   );
 };

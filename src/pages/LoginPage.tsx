@@ -8,7 +8,6 @@ import {
 } from "@/lib/firebaseAuth";
 import { ConfirmationResult, RecaptchaVerifier, FirebaseError } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart } from "lucide-react";
 
@@ -66,8 +65,7 @@ const LoginPage = () => {
               size: "invisible",
             }
           );
-        } catch (error) {
-          console.error("RecaptchaVerifier creation error:", error);
+        } catch {
           toast.error("Security verification unavailable. Try again.");
           return;
         }
@@ -83,7 +81,6 @@ const LoginPage = () => {
       toast.success("OTP sent! Check your phone.");
     } catch (error: unknown) {
       const fbError = error as FirebaseError;
-      console.error("Send OTP Error:", fbError);
 
       if (fbError.code === "auth/invalid-phone-number") {
         setPhoneError("Invalid phone format");
@@ -130,7 +127,6 @@ const LoginPage = () => {
       navigate("/dashboard");
     } catch (error: unknown) {
       const fbError = error as FirebaseError;
-      console.error("Verify OTP Error:", fbError);
 
       if (fbError.code === "auth/invalid-verification-code") {
         setOtpError("Wrong OTP. Try again.");
@@ -154,7 +150,6 @@ const LoginPage = () => {
       navigate("/dashboard");
     } catch (error: unknown) {
       const fbError = error as FirebaseError;
-      console.error("Google Sign-In Error:", fbError);
       
       // If authentication actually succeeded but the popup threw a COOP error on close, 
       // navigate anyway if auth.currentUser exists.

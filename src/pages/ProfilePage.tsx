@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { patientStore } from "@/lib/store";
 import { useAuthContext } from "@/hooks/useAuthContext";
-import { Patient } from "@/lib/mockData";
+import { Patient, EmergencyContact } from "@/lib/mockData";
 import { toast } from "sonner";
+import { handleError } from "@/lib/errors";
 import { motion } from "framer-motion";
-import { User, CreditCard, Phone, Clock, Ruler, Weight, Home, MapPin, Droplets, Users, ArrowRight, Loader2, LogOut } from "lucide-react";
+import { User, CreditCard, Phone, Clock, Ruler, Weight, Home, MapPin, Droplets, Users, ArrowRight, Loader2, LogOut, Plus, X, Siren } from "lucide-react";
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
@@ -14,6 +15,7 @@ const ProfilePage = () => {
     phone: user?.phoneNumber || "",
   });
   const [saving, setSaving] = useState(false);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
@@ -22,11 +24,13 @@ const ProfilePage = () => {
     patientStore.get(user.uid).then((existing) => {
       if (existing) {
         setForm(existing);
+        setEmergencyContacts(existing.emergencyContacts || []);
       } else {
         setForm({
           phone: user.phoneNumber || "",
           fullName: user.displayName || "",
         });
+        setEmergencyContacts([]);
       }
       setLoadingProfile(false);
     });
@@ -55,14 +59,15 @@ const ProfilePage = () => {
       weight: Number(form.weight) || 0,
       address: form.address || "",
       houseNumber: form.houseNumber || "",
+      emergencyContacts,
     };
 
     setSaving(true);
     try {
       await patientStore.save(patient);
       toast.success("Profile saved successfully!");
-    } catch {
-      toast.error("Failed to save profile. Please try again.");
+    } catch (error) {
+      handleError(error, "Failed to save profile. Please try again.", "ProfilePage:save");
     } finally {
       setSaving(false);
     }
@@ -187,6 +192,80 @@ const ProfilePage = () => {
             </select>
           </motion.div>
         </div>
+
+        {/* Emergency Contacts */}
+        <motion.div variants={itemVariants} className="space-y-4 pt-4 border-t border-white/5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+              <Siren className="w-3.5 h-3.5 text-red-400" />
+              Emergency Contacts
+            </label>
+            <button
+              type="button"
+              onClick={() => setEmergencyContacts([...emergencyContacts, { name: "", phone: "", relation: "" }])}
+              className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Add Contact
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-500 -mt-2">These contacts will receive an SMS with your location during an emergency.</p>
+          {emergencyContacts.length === 0 && (
+            <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 text-center">
+              <p className="text-xs text-red-400/80">No emergency contacts added. Add at least one for SOS to work.</p>
+            </div>
+          )}
+          <div className="space-y-3">
+            {emergencyContacts.map((contact, idx) => (
+              <div key={idx} className="bg-secondary/50 border border-white/5 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Contact {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setEmergencyContacts(emergencyContacts.filter((_, i) => i !== idx))}
+                    className="p-1 hover:bg-red-500/10 rounded-lg transition-colors text-gray-500 hover:text-red-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Name"
+                    value={contact.name}
+                    onChange={(e) => {
+                      const updated = [...emergencyContacts];
+                      updated[idx] = { ...updated[idx], name: e.target.value };
+                      setEmergencyContacts(updated);
+                    }}
+                    className="w-full bg-secondary border border-white/5 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-gray-600"
+                  />
+                  <input
+                    type="tel"
+                    placeholder="Phone (10 digits)"
+                    value={contact.phone}
+                    onChange={(e) => {
+                      const updated = [...emergencyContacts];
+                      updated[idx] = { ...updated[idx], phone: e.target.value.replace(/\D/g, "").slice(0, 10) };
+                      setEmergencyContacts(updated);
+                    }}
+                    className="w-full bg-secondary border border-white/5 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-gray-600"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Relation (e.g. Father)"
+                    value={contact.relation}
+                    onChange={(e) => {
+                      const updated = [...emergencyContacts];
+                      updated[idx] = { ...updated[idx], relation: e.target.value };
+                      setEmergencyContacts(updated);
+                    }}
+                    className="w-full bg-secondary border border-white/5 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-gray-600"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
 
         <motion.div variants={itemVariants} className="pt-4 border-t border-white/5">
           <button 

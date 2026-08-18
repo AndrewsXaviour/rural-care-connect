@@ -1,127 +1,43 @@
-import { Hospital, mockHospitals } from "@/lib/mockData";
+import type { Hospital } from "@/lib/mockData";
+import { mockHospitals } from "@/lib/mockData";
 import { calculateDistance } from "@/lib/location";
 
 // ---------------------------------------------------------------------------
-// AWS Location Service Types (v1 — SearchPlaceIndexForPosition)
-// ---------------------------------------------------------------------------
-
-interface AWSPlaceResult {
-  Distance?: number;
-  Place?: {
-    Label?: string;
-    Geometry?: { Point?: [number, number] }; // [lng, lat]
-    Categories?: string[];
-  };
-}
-
-interface AWSSearchResponse {
-  Results?: AWSPlaceResult[];
-}
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-const AWS_REGION = "us-east-1";
-const HOSPITAL_KEYWORDS = ["hospital", "medical", "clinic", "health", "nursing"];
-
-// ---------------------------------------------------------------------------
-// AWS Location Service — REST API (no SDK credentials needed)
+// Hospital Scraper — calls our serverless proxy (api/hospital-scraper.ts)
+// API key is kept server-side, never exposed to the client bundle.
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch hospitals near a location using AWS Location Service REST API.
- * Uses SearchPlaceIndexForPosition with API key auth via URL parameter.
+ * Fetch hospitals near a location via our serverless AWS Location proxy.
+ * Falls back to Overpass API (free, no key needed) if proxy is unavailable.
  */
 export const fetchHospitalsFromAWS = async (
   latitude: number,
   longitude: number,
   radiusKm: number = 50
 ): Promise<Hospital[]> => {
-  const apiKey = import.meta.env.VITE_AWS_LOCATION_SERVICE_API_KEY;
-  const indexName = (import.meta.env.VITE_AWS_PLACES_INDEX || "").trim();
-
-  if (!apiKey || !indexName) {
-    console.warn("AWS Location Service not configured. Falling back to Overpass API.");
-    return fetchHospitalsFromOverpassAPI(latitude, longitude, radiusKm);
-  }
-
-  const hospitals: Hospital[] = [];
-
-  // Inject premium localized mock data first
   try {
-    const nearbyMocks = mockHospitals.filter(
-      (h) => calculateDistance(latitude, longitude, h.latitude, h.longitude) <= radiusKm
-    );
-    hospitals.push(...nearbyMocks);
-    if (nearbyMocks.length > 0) {
-      console.log(`Injected ${nearbyMocks.length} premium localized hospitals`);
-    }
-  } catch (e) {
-    console.warn("Could not inject mock hospital data fallback", e);
-  }
-
-  try {
-    // REST API endpoint — API key passed as URL query parameter (no SDK auth needed)
-    const url = `https://places.geo.${AWS_REGION}.amazonaws.com/places/v0/indexes/${encodeURIComponent(indexName)}/search/position?key=${encodeURIComponent(apiKey)}`;
-
-    const response = await fetch(url, {
+    const response = await fetch("/api/hospital-scraper", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        Position: [longitude, latitude], // AWS uses [lng, lat]
-        MaxResults: 50,
-      }),
-      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ latitude, longitude, radiusKm }),
+      signal: AbortSignal.timeout(20000),
     });
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      console.error(`AWS Location Service error (${response.status}):`, errorText);
-      throw new Error(`AWS API returned ${response.status}`);
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(errorData.error || `Hospital proxy returned ${response.status}`);
     }
 
-    const data: AWSSearchResponse = await response.json();
-    const results = data.Results ?? [];
-    const existingIds = new Set(hospitals.map((h) => h.id));
+    const data = await response.json();
 
-    console.log(`AWS Location returned ${results.length} total places`);
-
-    for (const result of results) {
-      const place = result.Place;
-      if (!place?.Geometry?.Point) continue;
-
-      // Filter: check categories and label for hospital keywords
-      const categoryMatch = place.Categories?.some((cat) =>
-        HOSPITAL_KEYWORDS.some((kw) => cat.toLowerCase().includes(kw))
-      );
-      const labelMatch = HOSPITAL_KEYWORDS.some((kw) =>
-        (place.Label || "").toLowerCase().includes(kw)
-      );
-
-      if (!categoryMatch && !labelMatch) continue;
-
-      const [lng, lat] = place.Geometry.Point;
-      const id = `aws-${lng.toFixed(6)}-${lat.toFixed(6)}`;
-      if (existingIds.has(id)) continue;
-
-      hospitals.push({
-        id,
-        name: place.Label?.split(",")[0] || "Hospital",
-        address: place.Label || "Address not available",
-        latitude: lat,
-        longitude: lng,
-        distance: result.Distance
-          ? Math.round((result.Distance / 1000) * 10) / 10
-          : undefined,
-      });
-      existingIds.add(id);
+    if (!data.configured) {
+      // AWS not configured on server — fall through to Overpass
+      return fetchHospitalsFromOverpassAPI(latitude, longitude, radiusKm);
     }
 
-    console.log(`Found ${hospitals.length} hospitals (AWS Location Service)`);
-    return hospitals;
-  } catch (error) {
-    console.error("AWS Location Service failed, falling back to Overpass:", error);
+    return data.hospitals as Hospital[];
+  } catch {
     return fetchHospitalsFromOverpassAPI(latitude, longitude, radiusKm);
   }
 };
@@ -136,16 +52,6 @@ export const fetchHospitalsFromOverpassAPI = async (
   radiusKm: number = 50
 ): Promise<Hospital[]> => {
   const hospitals: Hospital[] = [];
-
-  try {
-    const nearbyMocks = mockHospitals.filter(
-      (h) => calculateDistance(latitude, longitude, h.latitude, h.longitude) <= radiusKm
-    );
-    hospitals.push(...nearbyMocks);
-    console.log(`Injected ${nearbyMocks.length} premium localized hospitals into search results`);
-  } catch (e) {
-    console.warn("Could not inject mock hospital data fallback", e);
-  }
 
   try {
     const overpassQuery = `
@@ -166,12 +72,11 @@ export const fetchHospitalsFromOverpassAPI = async (
     });
 
     if (!response.ok) {
-      console.warn("Overpass API error:", response.statusText);
       return hospitals;
     }
 
     const data = await response.json();
-    const existingIds = new Set(hospitals.map((h) => h.id));
+    const existingIds = new Set<string>();
 
     interface OverpassElement {
       id: number;
@@ -197,16 +102,14 @@ export const fetchHospitalsFromOverpassAPI = async (
       }
     });
 
-    console.log(`Found ${hospitals.length} total hospitals (Including Overpass API)`);
     return hospitals;
-  } catch (error) {
-    console.error("Error fetching hospitals from Overpass API:", error);
+  } catch {
     return hospitals;
   }
 };
 
 // ---------------------------------------------------------------------------
-// Combined entry point: AWS first, Overpass fallback
+// Combined entry point: AWS proxy first, Overpass fallback
 // ---------------------------------------------------------------------------
 
 export const fetchHospitalsFromWeb = async (
@@ -214,12 +117,22 @@ export const fetchHospitalsFromWeb = async (
   longitude: number,
   radiusKm: number = 50
 ): Promise<Hospital[]> => {
-  if (import.meta.env.VITE_AWS_LOCATION_SERVICE_API_KEY && import.meta.env.VITE_AWS_PLACES_INDEX) {
-    const awsHospitals = await fetchHospitalsFromAWS(latitude, longitude, radiusKm);
-    if (awsHospitals.length > 0) {
-      return awsHospitals;
-    }
+  const awsHospitals = await fetchHospitalsFromAWS(latitude, longitude, radiusKm);
+  if (awsHospitals.length > 0) {
+    return awsHospitals;
   }
 
-  return fetchHospitalsFromOverpassAPI(latitude, longitude, radiusKm);
+  const overpassHospitals = await fetchHospitalsFromOverpassAPI(latitude, longitude, radiusKm);
+  if (overpassHospitals.length > 0) {
+    return overpassHospitals;
+  }
+
+  // Final fallback: return mock hospitals with computed distance from user's location
+  console.log("External APIs unavailable — falling back to regional hospital data");
+  return mockHospitals
+    .map((h) => ({
+      ...h,
+      distance: calculateDistance(latitude, longitude, h.latitude, h.longitude),
+    }))
+    .sort((a, b) => (a.distance || 0) - (b.distance || 0));
 };

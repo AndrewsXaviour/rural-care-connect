@@ -25,7 +25,14 @@ export const Layout = () => {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col overflow-x-hidden">
-      <div className="fixed inset-0 bg-grid-pattern opacity-30 z-0 pointer-events-none"></div>
+      {/* Skip to main content — accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[200] focus:bg-primary focus:text-background focus:px-4 focus:py-2 focus:rounded-lg focus:font-semibold"
+      >
+        Skip to main content
+      </a>
+      <div className="fixed inset-0 bg-grid-pattern opacity-30 z-0 pointer-events-none" aria-hidden="true"></div>
       {!isAuthPage && (
         <>
           <header className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-4 pb-2 px-4 pointer-events-none">
@@ -48,7 +55,7 @@ export const Layout = () => {
               </div>
             </div>
           </header>
-          <main className="pt-36 px-4 pb-12 max-w-5xl w-full mx-auto flex flex-col flex-1 relative z-10">
+          <main id="main-content" className="pt-36 px-4 pb-12 max-w-5xl w-full mx-auto flex flex-col flex-1 relative z-10" role="main">
             <AnimatePresence mode="wait">
               <PageTransition locationKey={location.pathname}>
                 <Outlet />
@@ -59,7 +66,7 @@ export const Layout = () => {
         </>
       )}
       {isAuthPage && (
-        <main className="min-h-screen flex flex-col relative z-10">
+        <main id="main-content" className="min-h-screen flex flex-col relative z-10" role="main">
           <AnimatePresence mode="wait">
             <PageTransition locationKey={location.pathname}>
               <Outlet />

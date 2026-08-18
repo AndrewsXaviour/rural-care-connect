@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Hospital } from "@/lib/mockData";
 import { calculateDistance, getUserLocation, getAddressFromCoordinates, LocationCoords } from "@/lib/location";
 import { fetchHospitalsFromWeb } from "@/lib/hospitalScraper";
@@ -10,100 +10,79 @@ interface UseNearbyHospitalsReturn {
   error: string | null;
   userLocation: LocationCoords | null;
   userAddress: string;
-  refetch: () => Promise<void>;
+  refetch: () => void;
+}
+
+interface HospitalQueryResult {
+  hospitals: Hospital[];
+  userLocation: LocationCoords;
+  userAddress: string;
+}
+
+async function fetchHospitalData(): Promise<HospitalQueryResult> {
+  // Get user's current location
+  const coords = await getUserLocation();
+  const userLocation: LocationCoords = {
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+  };
+
+  // Get user's address from coordinates
+  const userAddress = await getAddressFromCoordinates(coords.latitude, coords.longitude);
+
+  // Try to get cached hospitals first
+  const cachedHospitals = await getCachedHospitals(60);
+  let fetchedHospitals: Hospital[] = [];
+
+  if (cachedHospitals.length > 0) {
+    fetchedHospitals = cachedHospitals as unknown as Hospital[];
+  } else {
+    // Fetch fresh hospitals from web (OpenStreetMap)
+    fetchedHospitals = await fetchHospitalsFromWeb(coords.latitude, coords.longitude, 50);
+
+    // Cache the results
+    if (fetchedHospitals.length > 0) {
+      await cacheHospitals(fetchedHospitals);
+    }
+  }
+
+  // Calculate distances for all hospitals
+  const hospitalsWithDistance = fetchedHospitals.map((hospital) => ({
+    ...hospital,
+    distance: calculateDistance(
+      coords.latitude,
+      coords.longitude,
+      hospital.latitude,
+      hospital.longitude
+    ),
+  }));
+
+  // Sort by distance
+  const sorted = hospitalsWithDistance.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+
+  return { hospitals: sorted, userLocation, userAddress };
 }
 
 /**
- * Custom hook to fetch nearby hospitals based on user's location
- * Fetches real data from OpenStreetMap API and caches in Firebase
+ * Custom hook to fetch nearby hospitals based on user's location.
+ * Uses TanStack Query for caching, deduplication, and background refetch.
  */
 export const useNearbyHospitals = (): UseNearbyHospitalsReturn => {
-  const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [userLocation, setUserLocation] = useState<LocationCoords | null>(null);
-  const [userAddress, setUserAddress] = useState<string>("");
-
-  const fetchNearbyHospitals = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Get user's current location
-      const coords = await getUserLocation();
-      const location: LocationCoords = {
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      };
-      setUserLocation(location);
-
-      // Get user's address from coordinates
-      const address = await getAddressFromCoordinates(coords.latitude, coords.longitude);
-      setUserAddress(address);
-
-      // Try to get cached hospitals first
-      const cachedHospitals = await getCachedHospitals(60); // 60 minute cache
-      let fetchedHospitals: Hospital[] = [];
-
-      if (cachedHospitals.length > 0) {
-        console.log(`Using ${cachedHospitals.length} cached hospitals`);
-        fetchedHospitals = (cachedHospitals as unknown as Hospital[]);
-      } else {
-        // Fetch fresh hospitals from web (OpenStreetMap)
-        console.log("Fetching hospitals from web...");
-        fetchedHospitals = await fetchHospitalsFromWeb(coords.latitude, coords.longitude, 50);
-
-        // Cache the results
-        if (fetchedHospitals.length > 0) {
-          await cacheHospitals(fetchedHospitals);
-        }
-      }
-
-      // Calculate distances for all hospitals
-      const hospitalsWithDistance = fetchedHospitals.map((hospital) => ({
-        ...hospital,
-        distance: calculateDistance(
-          coords.latitude,
-          coords.longitude,
-          hospital.latitude,
-          hospital.longitude
-        ),
-      }));
-
-      // Sort by distance
-      const sorted = hospitalsWithDistance.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      setHospitals(sorted);
-    } catch (err: unknown) {
-      console.error("Location/Hospital fetch error:", err);
-      const geoErr = err as { code?: number; message?: string };
-      const errorMessage =
-        geoErr.code === 1
-          ? "Location access denied. Please enable location permissions."
-          : geoErr.code === 2
-            ? "Unable to retrieve your location. Please try again."
-            : geoErr.code === 3
-              ? "Location request timed out. Please try again."
-              : geoErr.message || "Unable to fetch hospitals";
-
-      setError(errorMessage);
-
-      // Fall back to empty list
-      setHospitals([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchNearbyHospitals();
-  }, []);
+  const { data, isLoading, error, refetch } = useQuery<HospitalQueryResult, Error>({
+    queryKey: ["nearbyHospitals"],
+    queryFn: fetchHospitalData,
+    staleTime: 5 * 60 * 1000, // 5 minutes — don't refetch if data is fresh
+    gcTime: 30 * 60 * 1000, // 30 minutes — keep in cache after unmount
+    retry: 1, // Retry once on failure
+    refetchOnWindowFocus: false, // Don't refetch when user tabs back
+  });
 
   return {
-    hospitals,
-    loading,
-    error,
-    userLocation,
-    userAddress,
-    refetch: fetchNearbyHospitals,
+    hospitals: data?.hospitals ?? [],
+    loading: isLoading,
+    error: error?.message ?? null,
+    userLocation: data?.userLocation ?? null,
+    userAddress: data?.userAddress ?? "",
+    refetch,
   };
 };

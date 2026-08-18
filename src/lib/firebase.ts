@@ -1,8 +1,5 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore, initializeFirestore } from "firebase/firestore";
-import { getStorage, FirebaseStorage } from "firebase/storage";
-import { getFunctions, Functions } from "firebase/functions";
 import { getAnalytics, isSupported, Analytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -15,19 +12,13 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase
+// Initialize Firebase — Auth only (data goes through Supabase)
 const app = initializeApp(firebaseConfig);
-console.log("🔥 Firebase initialized:", firebaseConfig.projectId);
 
-// Initialize Firebase services
+// Auth service (used by firebaseAuth.ts for Phone OTP, Google, Email auth)
 export const auth: Auth = getAuth(app);
-export const db: Firestore = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
-export const storage: FirebaseStorage = getStorage(app);
-export const functions: Functions = getFunctions(app);
 
-// Initialize Analytics only when supported (fails in SSR/test environments)
+// Analytics (optional, fails gracefully in SSR/test environments)
 let analytics: Analytics | null = null;
 isSupported()
   .then((supported) => {
@@ -36,7 +27,7 @@ isSupported()
     }
   })
   .catch(() => {
-    console.warn("Firebase Analytics not supported in this environment");
+    // Analytics not supported in this environment
   });
 
 export { analytics };

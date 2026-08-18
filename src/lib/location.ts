@@ -169,8 +169,7 @@ export const getDetailedAddress = async (
         ? `${data.address.amenity}, ${preciseLabel}`
         : preciseLabel,
     };
-  } catch (error) {
-    console.error("Error getting detailed address:", error);
+  } catch {
     const coordinateLabel = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
     return {
       street: "",

@@ -2,10 +2,17 @@ import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthContext } from "@/hooks/useAuthContext";
 import { mockDoctors, mockHospitals, DISEASE_SPECIALIZATION, Appointment, Hospital, Doctor } from "@/lib/mockData";
+import { getHospitalById } from "@/lib/hospitalUtils";
 import { appointmentStore } from "@/lib/store";
 import { toast } from "sonner";
+import { handleError } from "@/lib/errors";
 import { motion, AnimatePresence } from "framer-motion";
-import { Stethoscope, ChevronLeft, ChevronDown, Calendar, Clock, ArrowRight, CheckCircle, Loader2, Sparkles } from "lucide-react";
+import { format } from "date-fns";
+import { Stethoscope, ChevronLeft, ChevronDown, Calendar, CalendarIcon, Clock, ArrowRight, CheckCircle, Loader2, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 /**
  * Generate mock doctors for a real (non-mock) hospital
@@ -48,21 +55,13 @@ const DoctorsPage = () => {
   const { user } = useAuthContext();
 
   const [hospital, setHospital] = useState<Hospital | undefined>(
-    mockHospitals.find((h) => h.id === hospitalId)
+    hospitalId ? getHospitalById(hospitalId) : undefined
   );
 
   useEffect(() => {
     if (!hospital && hospitalId) {
-      try {
-        const cachedHospitals = localStorage.getItem("cached_hospitals_list");
-        if (cachedHospitals) {
-          const parsed: Hospital[] = JSON.parse(cachedHospitals);
-          const found = parsed.find((h) => h.id === hospitalId);
-          if (found) setHospital(found);
-        }
-      } catch {
-        // Ignore JSON parse errors
-      }
+      const found = getHospitalById(hospitalId);
+      if (found) setHospital(found);
     }
   }, [hospital, hospitalId]);
 
@@ -132,8 +131,8 @@ const DoctorsPage = () => {
 
       setBooked(appt);
       toast.success("Appointment booked!");
-    } catch {
-      toast.error("Failed to book appointment. Please try again.");
+    } catch (error) {
+      handleError(error, "Failed to book appointment. Please try again.", "DoctorsPage:bookSlot");
     } finally {
       setBooking(false);
     }
@@ -290,13 +289,30 @@ const DoctorsPage = () => {
                             <Calendar className="w-3.5 h-3.5" />
                             Select Date
                           </label>
-                          <input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            min={new Date().toISOString().split("T")[0]}
-                            className="w-full bg-secondary border border-white/10 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium"
-                          />
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "w-full justify-start text-left font-normal border-white/10 bg-secondary hover:bg-secondary/80 text-white rounded-xl px-4 py-3 h-auto",
+                                  !selectedDate && "text-gray-400"
+                                )}
+                              >
+                                <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
+                                {selectedDate ? format(new Date(selectedDate), "PPP") : <span>Pick a date</span>}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0 bg-card border-white/10" align="start">
+                              <CalendarPicker
+                                mode="single"
+                                selected={selectedDate ? new Date(selectedDate) : undefined}
+                                onSelect={(date) => setSelectedDate(date ? format(date, "yyyy-MM-dd") : "")}
+                                disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                                initialFocus
+                                className="bg-card text-white"
+                              />
+                            </PopoverContent>
+                          </Popover>
                         </div>
 
                         <div className="space-y-3">

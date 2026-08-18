@@ -73,8 +73,6 @@ const SignupPage = () => {
       navigate("/dashboard");
     } catch (error: unknown) {
       const fbError = error as FirebaseError;
-      console.error("Signup error:", fbError);
-      
       // Handle specific Firebase auth error codes
       switch (fbError.code) {
         case "auth/email-already-in-use":

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send, Bot, User, Loader2 } from "lucide-react";
 import { sendMessageToGemini, ChatMessage } from "@/lib/gemini";
-import { toast } from "sonner";
+import { handleError } from "@/lib/errors";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Assistant = () => {
@@ -35,9 +35,8 @@ export const Assistant = () => {
       // Send message to Gemini
       const aiResponse = await sendMessageToGemini(updatedMessages);
       setMessages([...updatedMessages, { role: "model", text: aiResponse }]);
-    } catch (error: unknown) {
-      console.error("Gemini Error:", error);
-      toast.error("I'm having trouble connecting right now. Please check your API key in the .env file.");
+    } catch (error) {
+      handleError(error, "I'm having trouble connecting right now. Please try again.", "Assistant:sendMessage");
       setMessages([...updatedMessages, { role: "model", text: "I apologize, but I am facing a technical issue. Please try again in a few moments." }]);
     } finally {
       setIsLoading(false);

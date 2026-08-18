@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNearbyHospitals } from "@/hooks/useNearbyHospitals";
 import { toast } from "sonner";
+import { handleError } from "@/lib/errors";
 import { Hospital } from "@/lib/mockData";
 import { calculateDistance } from "@/lib/location";
 import { fetchHospitalsFromWeb } from "@/lib/hospitalScraper";
@@ -13,6 +14,11 @@ const HospitalsPage = () => {
   const { hospitals, loading, error, userLocation, userAddress, refetch } = useNearbyHospitals();
   const [showLocationInput, setShowLocationInput] = useState(false);
   const [locationInput, setLocationInput] = useState("");
+
+  // Auto-show manual location input when geolocation fails
+  useEffect(() => {
+    if (error && !showLocationInput) setShowLocationInput(true);
+  }, [error]);
   const [radiusFilter, setRadiusFilter] = useState(50);
   const [manualHospitals, setManualHospitals] = useState<Hospital[]>([]);
   const [manualLoading, setManualLoading] = useState(false);
@@ -82,8 +88,7 @@ const HospitalsPage = () => {
       setLocationInput("");
       toast.success(`Found ${sorted.length} hospitals near "${query}"`);
     } catch (err) {
-      console.error("Manual location search error:", err);
-      toast.error("Failed to search this location. Please try again.");
+      handleError(err, "Failed to search this location. Please try again.", "HospitalsPage:manualSearch");
     } finally {
       setManualLoading(false);
     }

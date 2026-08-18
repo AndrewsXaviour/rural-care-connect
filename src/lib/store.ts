@@ -1,5 +1,7 @@
-import { Patient, Appointment, MedicalReport } from "./mockData";
+import { Patient, Appointment, MedicalReport, EmergencyContact } from "./mockData";
 import { supabase } from "./supabase";
+import { encryptAadhaar, decryptAadhaar, hashAadhaar, type EncryptedAadhaar } from "./crypto";
+import { queueWrite } from "./offlineQueue";
 
 // ---------------------------------------------------------------------------
 // Keys for localStorage fallback / cache (Offline first / Speed)
@@ -9,18 +11,68 @@ const APPOINTMENTS_KEY = "rural_health_appointments";
 const REPORTS_KEY = "rural_health_reports";
 
 // ---------------------------------------------------------------------------
+// Supabase row types (matches the DB schema)
+// ---------------------------------------------------------------------------
+interface SupabasePatientRow {
+  id: string;
+  aadhaar_encrypted: string | null;
+  aadhaar_hash: string | null;
+  aadhaar?: string;
+  full_name: string;
+  phone: string;
+  gender: string;
+  blood_group: string;
+  age: number;
+  height: number;
+  weight: number;
+  address: string;
+  house_number: string;
+  emergency_contacts: EmergencyContact[] | null;
+  updated_at: string;
+}
+
+interface SupabaseAppointmentRow {
+  id: string;
+  patient_id: string;
+  doctor_id: string;
+  hospital_id: string;
+  date: string;
+  time: string;
+  status: "booked" | "completed" | "cancelled";
+}
+
+interface SupabaseReportRow {
+  id: string;
+  patient_id: string;
+  hospital_id: string;
+  test_name: string;
+  date: string;
+  status: string;
+  result_summary: string;
+}
+
+interface DbResult<T> {
+  data: T | null;
+  error: { message: string } | null;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: safe DB call with localStorage fallback
 // ---------------------------------------------------------------------------
 const tryDatabase = async <T>(
-  dbCall: () => Promise<{ data: T | null; error: any }>,
-  fallback: () => T | any
-): Promise<T | any> => {
+  dbCall: () => Promise<DbResult<T>>,
+  fallback: () => T | null | undefined,
+  queueInfo?: { table: string; operation: "insert" | "update" | "upsert"; payload: Record<string, unknown>; filters?: Record<string, unknown> }
+): Promise<T | null | undefined> => {
   try {
     const { data, error } = await dbCall();
     if (error) throw error;
     return data;
-  } catch (error) {
-    console.warn("⚠️ Database call failed, using localStorage:", error.message || error);
+  } catch {
+    // Queue failed write for retry when back online
+    if (queueInfo) {
+      queueWrite(queueInfo.table, queueInfo.operation, queueInfo.payload, queueInfo.filters).catch(() => {});
+    }
     return fallback();
   }
 };
@@ -32,13 +84,22 @@ export const patientStore = {
   save: async (patient: Patient): Promise<void> => {
     // Always persist to localStorage for instant reads / offline
     localStorage.setItem(PATIENT_KEY, JSON.stringify(patient));
-    console.log("💾 Persisted patient to local storage:", patient.fullName);
-    
+
     await tryDatabase(
       async () => {
-        const res = await supabase.from("patients").upsert({
+        // SEC3: Encrypt Aadhaar before storing in Supabase
+        let aadhaarEncrypted: string | null = null;
+        let aadhaarHash: string | null = null;
+        if (patient.aadhaar) {
+          const encrypted = await encryptAadhaar(patient.aadhaar);
+          aadhaarEncrypted = JSON.stringify(encrypted);
+          aadhaarHash = await hashAadhaar(patient.aadhaar);
+        }
+
+        const payload = {
           id: patient.uid,
-          aadhaar: patient.aadhaar,
+          aadhaar_encrypted: aadhaarEncrypted,
+          aadhaar_hash: aadhaarHash,
           full_name: patient.fullName,
           phone: patient.phone,
           gender: patient.gender,
@@ -48,17 +109,18 @@ export const patientStore = {
           weight: patient.weight,
           address: patient.address,
           house_number: patient.houseNumber,
+          emergency_contacts: patient.emergencyContacts || [],
           updated_at: new Date().toISOString()
-        });
-        if (!res.error) console.log("☁️ Synced patient profile to Supabase.");
-        return res;
+        };
+        const res = await supabase.from("patients").upsert(payload);
+        return res as unknown as DbResult<SupabasePatientRow>;
       },
-      () => undefined
+      () => undefined,
+      { table: "patients", operation: "upsert", payload: { id: patient.uid, aadhaar_encrypted: null, aadhaar_hash: null, full_name: patient.fullName, phone: patient.phone, gender: patient.gender, blood_group: patient.bloodGroup, age: patient.age, height: patient.height, weight: patient.weight, address: patient.address, house_number: patient.houseNumber, emergency_contacts: patient.emergencyContacts || [], updated_at: new Date().toISOString() } }
     );
   },
 
   get: async (uid: string): Promise<Patient | null> => {
-    console.log("🔍 Fetching patient data for:", uid);
     // Try Supabase first
     const data = await tryDatabase(
       async () => {
@@ -67,17 +129,29 @@ export const patientStore = {
           .select("*")
           .eq("id", uid)
           .maybeSingle();
-        if (res.data) console.log("✅ Fetched profile from Supabase.");
-        else console.log("ℹ️ No existing profile found in Supabase — new user.");
-        return res;
+        return res as unknown as DbResult<SupabasePatientRow>;
       },
       () => null
     );
 
     if (data) {
+      // SEC3: Decrypt Aadhaar from Supabase
+      let aadhaar = "";
+      if (data.aadhaar_encrypted) {
+        try {
+          aadhaar = await decryptAadhaar(JSON.parse(data.aadhaar_encrypted) as EncryptedAadhaar);
+        } catch {
+          // Fallback for legacy unencrypted Aadhaar
+          aadhaar = data.aadhaar || "";
+        }
+      } else if (data.aadhaar) {
+        // Legacy unencrypted field
+        aadhaar = data.aadhaar;
+      }
+
       const patient: Patient = {
         uid: data.id,
-        aadhaar: data.aadhaar,
+        aadhaar,
         fullName: data.full_name,
         phone: data.phone,
         gender: data.gender,
@@ -86,7 +160,8 @@ export const patientStore = {
         height: data.height,
         weight: data.weight,
         address: data.address,
-        houseNumber: data.house_number
+        houseNumber: data.house_number,
+        emergencyContacts: data.emergency_contacts || [],
       };
       localStorage.setItem(PATIENT_KEY, JSON.stringify(patient));
       return patient;
@@ -108,21 +183,19 @@ export const patientStore = {
 // ---------------------------------------------------------------------------
 export const appointmentStore = {
   getAll: async (patientId: string): Promise<Appointment[]> => {
-    console.log("📅 Fetching appointments for:", patientId);
     const data = await tryDatabase(
       async () => {
         const res = await supabase
           .from("appointments")
           .select("*")
           .eq("patient_id", patientId);
-        if (res.data) console.log(`✅ Fetched ${res.data.length} appointments from Supabase.`);
-        return res;
+        return res as unknown as DbResult<SupabaseAppointmentRow[]>;
       },
       () => null
     );
 
     if (data) {
-      const mapped = data.map((a: any) => ({
+      const mapped = data.map((a) => ({
         id: a.id,
         patientId: a.patient_id,
         doctorId: a.doctor_id,
@@ -147,7 +220,6 @@ export const appointmentStore = {
     const all: Appointment[] = cached ? JSON.parse(cached) : [];
     all.push(appt);
     localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify(all));
-    console.log("💾 Cached new appointment locally.");
 
     // Supabase
     await tryDatabase(
@@ -161,10 +233,10 @@ export const appointmentStore = {
           time: appt.time,
           status: appt.status
         });
-        if (!res.error) console.log("☁️ Synced appointment to Supabase.");
-        return res;
+        return res as unknown as DbResult<SupabaseAppointmentRow>;
       },
-      () => undefined
+      () => undefined,
+      { table: "appointments", operation: "insert", payload: { id: appt.id, patient_id: appt.patientId } }
     );
   },
 
@@ -185,10 +257,10 @@ export const appointmentStore = {
           .from("appointments")
           .update({ status })
           .eq("id", id);
-        if (!res.error) console.log("☁️ Updated appointment status in Supabase.");
-        return res;
+        return res as unknown as DbResult<SupabaseAppointmentRow>;
       },
-      () => undefined
+      () => undefined,
+      { table: "appointments", operation: "update", payload: { status }, filters: { id } }
     );
   },
 };
@@ -198,21 +270,19 @@ export const appointmentStore = {
 // ---------------------------------------------------------------------------
 export const reportStore = {
   getAllForUser: async (uid: string): Promise<MedicalReport[]> => {
-    console.log("📄 Fetching medical reports for:", uid);
     const data = await tryDatabase(
       async () => {
         const res = await supabase
           .from("medical_reports")
           .select("*")
           .eq("patient_id", uid);
-        if (res.data) console.log(`✅ Fetched ${res.data.length} reports from Supabase.`);
-        return res;
+        return res as unknown as DbResult<SupabaseReportRow[]>;
       },
       () => null
     );
 
     if (data) {
-      const mapped = data.map((r: any) => ({
+      const mapped = data.map((r) => ({
         id: r.id,
         patientId: r.patient_id,
         hospitalId: r.hospital_id,
@@ -237,7 +307,6 @@ export const reportStore = {
     const all: MedicalReport[] = cached ? JSON.parse(cached) : [];
     all.push(report);
     localStorage.setItem(REPORTS_KEY, JSON.stringify(all));
-    console.log("💾 Cached new report locally.");
 
     // Supabase
     await tryDatabase(
@@ -251,10 +320,10 @@ export const reportStore = {
           status: report.status,
           result_summary: report.resultSummary
         });
-        if (!res.error) console.log("☁️ Synced report to Supabase.");
-        return res;
+        return res as unknown as DbResult<SupabaseReportRow>;
       },
-      () => undefined
+      () => undefined,
+      { table: "medical_reports", operation: "insert", payload: { id: report.id, patient_id: report.patientId } }
     );
   },
 };
