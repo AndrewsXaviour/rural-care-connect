@@ -20,6 +20,8 @@ export const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  
   const demoLogin = useCallback(() => {
     setUser({
       uid: "demo-user-123",
