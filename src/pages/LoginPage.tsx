@@ -102,9 +102,6 @@ const LoginPage = () => {
       } else {
         toast.error(fbError.message || "Failed to send OTP");
       }
-
-      // Reset recaptcha on error
-      recaptchaVerifierRef.current = null;
     } finally {
       if (import.meta.env.VITE_FIREBASE_API_KEY && !import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
         setLoading(false);
