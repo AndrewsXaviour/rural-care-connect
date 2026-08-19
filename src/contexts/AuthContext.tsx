@@ -32,7 +32,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    if (localStorage.getItem("rural_health_demo_auth") === "true") {
+    // SUPPRESS LOGIN: Force demo mode unconditionally for demo purposes
+    const DEMO_MODE = true;
+    
+    if (DEMO_MODE || localStorage.getItem("rural_health_demo_auth") === "true") {
       demoLogin();
       setLoading(false);
       return () => {};
