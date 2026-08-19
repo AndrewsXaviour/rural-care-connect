@@ -10,6 +10,7 @@ import { ConfirmationResult, RecaptchaVerifier, FirebaseError } from "firebase/a
 import { auth } from "@/lib/firebase";
 import { Input } from "@/components/ui/input";
 import { Heart } from "lucide-react";
+import { useAuthContext } from "@/hooks/useAuthContext";
 
 const LoginPage = () => {
   const [phone, setPhone] = useState("");
@@ -20,6 +21,7 @@ const LoginPage = () => {
   const [phoneError, setPhoneError] = useState("");
   const [otpError, setOtpError] = useState("");
   const navigate = useNavigate();
+  const { demoLogin } = useAuthContext();
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
 
@@ -53,6 +55,17 @@ const LoginPage = () => {
 
     try {
       setLoading(true);
+      
+      // Demo mode bypass
+      if (!import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setTimeout(() => {
+          setOtpSent(true);
+          toast.success("Demo OTP sent! (Enter any 6 digits)");
+          setLoading(false);
+        }, 1000);
+        return;
+      }
+
       const phoneNumber = "+91" + phone;
 
       // Create reCAPTCHA verifier using auth instance
@@ -93,7 +106,9 @@ const LoginPage = () => {
       // Reset recaptcha on error
       recaptchaVerifierRef.current = null;
     } finally {
-      setLoading(false);
+      if (import.meta.env.VITE_FIREBASE_API_KEY && !import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setLoading(false);
+      }
     }
   };
 
@@ -113,6 +128,16 @@ const LoginPage = () => {
 
     try {
       setLoading(true);
+
+      // Demo mode bypass
+      if (!import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setTimeout(() => {
+          demoLogin();
+          toast.success("Demo Login successful!");
+          navigate("/dashboard");
+        }, 1000);
+        return;
+      }
 
       if (!confirmationResultRef.current) {
         setOtpSent(false);
@@ -137,7 +162,9 @@ const LoginPage = () => {
         setOtpError(fbError.message || "Verification failed");
       }
     } finally {
-      setLoading(false);
+      if (import.meta.env.VITE_FIREBASE_API_KEY && !import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setLoading(false);
+      }
     }
   };
 
@@ -145,6 +172,17 @@ const LoginPage = () => {
   const handleGoogleSignIn = async () => {
     try {
       setLoadingGoogle(true);
+      
+      // Demo mode bypass
+      if (!import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setTimeout(() => {
+          demoLogin();
+          toast.success("Demo Login successful!");
+          navigate("/dashboard");
+        }, 1000);
+        return;
+      }
+
       await signInWithGoogle();
       toast.success("Logged in!");
       navigate("/dashboard");
@@ -163,7 +201,9 @@ const LoginPage = () => {
         toast.error(fbError.message || "Google sign-in failed");
       }
     } finally {
-      setLoadingGoogle(false);
+      if (import.meta.env.VITE_FIREBASE_API_KEY && !import.meta.env.VITE_FIREBASE_API_KEY.includes("DummyKey")) {
+        setLoadingGoogle(false);
+      }
     }
   };
 
