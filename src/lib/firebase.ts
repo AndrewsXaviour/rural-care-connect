@@ -20,15 +20,19 @@ export const auth: Auth = getAuth(app);
 
 // Analytics (optional, fails gracefully in SSR/test environments)
 let analytics: Analytics | null = null;
-isSupported()
-  .then((supported) => {
-    if (supported) {
-      analytics = getAnalytics(app);
-    }
-  })
-  .catch(() => {
-    // Analytics not supported in this environment
-  });
+
+// Only initialize analytics if a real API key is provided
+if (import.meta.env.VITE_FIREBASE_API_KEY) {
+  isSupported()
+    .then((supported) => {
+      if (supported) {
+        analytics = getAnalytics(app);
+      }
+    })
+    .catch(() => {
+      // Analytics not supported in this environment
+    });
+}
 
 export { analytics };
 export default app;
