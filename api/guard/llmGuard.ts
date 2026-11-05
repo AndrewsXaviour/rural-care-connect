@@ -109,10 +109,12 @@ function updateCircuit(wasAttack: boolean): { before: CircuitState; after: Circu
 
 // ─── Stage 1: Input Sanitizer & Token Scanner ────────────────────────────────
 
+/* eslint-disable no-control-regex */
 const OBFUSCATION_PATTERNS = [
-  /[\u0000-\u0008\u000B\u000E-\u001F\u007F]/g,                 // control characters
+  /[\u0000-\u0008\u000B\u000E-\u001F\u007F]/g, // control characters
   /(?:[A-Za-z0-9+/]{4}){4,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?/g, // long base64 blobs
 ];
+/* eslint-enable no-control-regex */
 
 function sanitizeInput(prompt: string): string {
   let cleaned = prompt;
