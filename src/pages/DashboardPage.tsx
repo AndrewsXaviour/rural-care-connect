@@ -149,26 +149,29 @@ const DashboardPage = () => {
           </button>
         </motion.div>
         
-        {/* Reports Card */}
-        <motion.div variants={itemVariants} className="md:col-span-1">
+        {/* LLM Guard Security Card */}
+        <motion.div variants={itemVariants} className="md:col-span-2">
           <button
-            onClick={() => navigate("/reports")}
-            className="w-full h-full glass-card-hover p-6 flex flex-col group relative overflow-hidden text-left"
+            onClick={() => navigate("/security")}
+            className="w-full h-full glass-card-hover p-6 flex items-center justify-between group relative overflow-hidden text-left border-primary/20 hover:border-primary/50"
           >
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-              <FileBarChart className="w-20 h-20" />
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">LLM Guard Security Console</h3>
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Active</span>
+                </div>
+                <p className="text-sm text-gray-400 mt-1">Prompt Injection Defense • Circuit Breaker • Live Threat Telemetry</p>
+              </div>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 flex items-center justify-center mb-4">
-              <FileBarChart className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white group-hover:text-primary transition-colors">Medical Records</h3>
-            <p className="text-sm text-gray-400 mt-1">Access your comprehensive lab reports</p>
-            <div className="mt-auto pt-4 flex items-center gap-1 text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-              View records <ArrowRight className="w-3 h-3" />
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary group-hover:translate-x-1 transition-transform relative z-10">
+              Open Console <ArrowRight className="w-4 h-4" />
             </div>
           </button>
         </motion.div>
-
       </div>
 
       {showEmergency && (

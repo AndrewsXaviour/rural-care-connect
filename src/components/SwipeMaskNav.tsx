@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Building2, CalendarCheck, FileBarChart, UserCircle } from "lucide-react";
+import { LayoutDashboard, Building2, CalendarCheck, FileBarChart, UserCircle, ShieldAlert } from "lucide-react";
 
 type NavItem = { name: string; href: string; icon: React.ElementType };
 interface NavProps { items?: NavItem[]; className?: string }
@@ -11,6 +11,7 @@ const DEFAULT_ITEMS: NavItem[] = [
   { name: "Hospitals", href: "/hospitals", icon: Building2 },
   { name: "Appointments", href: "/appointments", icon: CalendarCheck },
   { name: "Reports", href: "/reports", icon: FileBarChart },
+  { name: "LLM Guard", href: "/security", icon: ShieldAlert },
   { name: "Profile", href: "/profile", icon: UserCircle },
 ];
 
